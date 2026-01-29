@@ -11,17 +11,17 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
 
             {{-- Chamados aguardando atendimento --}}
-            <div class="bg-white rounded-lg p-4 shadow">
+            <div class="bg-white rounded-xl p-4 shadow">
                 <p class="text-xs text-slate-500">
                     Chamados aguardando atendimento
                 </p>
-                <p class="text-2xl font-bold">
+                <p class="text-2xl font-bold text-blue-600">
                     {{ $waitingCount }}
                 </p>
             </div>
 
             {{-- Chamados em atendimento --}}
-            <div class="bg-white rounded-lg p-4 shadow">
+            <div class="bg-white rounded-xl p-4 shadow">
                 <p class="text-xs text-slate-500">
                     Chamados em atendimento
                 </p>
@@ -31,7 +31,7 @@
             </div>
 
             {{-- Chamados resolvidos hoje --}}
-            <div class="bg-white rounded-lg p-4 shadow">
+            <div class="bg-white rounded-xl p-4 shadow">
                 <p class="text-xs text-slate-500">
                     Resolvidos hoje
                 </p>
@@ -40,8 +40,8 @@
                 </p>
             </div>
 
-            {{-- CSAT (placeholder futuro) --}}
-            <div class="bg-white rounded-lg p-4 shadow">
+            {{-- CSAT (placeholder) --}}
+            <div class="bg-white rounded-xl p-4 shadow">
                 <p class="text-xs text-slate-500">
                     Satisfação (CSAT)
                 </p>
@@ -61,7 +61,7 @@
         <table class="min-w-full text-sm">
             <thead class="bg-slate-100 text-slate-600 uppercase text-xs">
                 <tr>
-                    <th class="px-4 py-3 text-left">Nº Chamado</th>
+                    <th class="px-4 py-3 text-left">Chamado</th>
                     <th class="px-4 py-3 text-left">Título</th>
                     <th class="px-4 py-3 text-left">Solicitante</th>
                     <th class="px-4 py-3 text-left">Departamento</th>
@@ -80,17 +80,24 @@
                         /**
                          * -------------------------------------------------------
                          * BADGES PRONTOS VINDOS DO MODEL
-                         * - Nenhuma lógica na view
                          * -------------------------------------------------------
                          */
                         $priority = $ticket->priorityBadge();
                         $status   = $ticket->statusBadge();
+
+                        $isWaitingUser = $ticket->status === \App\Enums\TicketStatus::WAITING_USER;
                     @endphp
 
-                    <tr class="hover:bg-slate-50">
+                    <tr class="
+                        transition
+                        {{ $isWaitingUser
+                            ? 'bg-orange-50 hover:bg-orange-100'
+                            : 'hover:bg-slate-50'
+                        }}
+                    ">
 
-                        {{-- Código do chamado --}}
-                        <td class="px-4 py-3 font-medium">
+                        {{-- Código --}}
+                        <td class="px-4 py-3 font-semibold text-slate-800">
                             {{ $ticket->code }}
                         </td>
 
@@ -121,9 +128,16 @@
                             <span class="px-2 py-0.5 rounded text-[11px] {{ $status['color'] }}">
                                 {{ $status['label'] }}
                             </span>
+
+                            {{-- Indicador SLA pausado --}}
+                            @if ($isWaitingUser)
+                                <span class="ml-1 text-orange-600" title="SLA pausado aguardando usuário">
+                                    ⏸️
+                                </span>
+                            @endif
                         </td>
 
-                        {{-- Data de abertura --}}
+                        {{-- Abertura --}}
                         <td class="px-4 py-3 text-slate-500">
                             {{ $ticket->created_at->format('d/m/Y H:i') }}
                         </td>
@@ -133,7 +147,7 @@
                         ==================================================== --}}
                         <td class="px-4 py-2 text-right space-x-1">
 
-                            {{-- 1️⃣ Chamado ainda não assumido --}}
+                            {{-- 1️⃣ Ainda não assumido --}}
                             @if (is_null($ticket->assigned_to))
                                 <form method="POST"
                                       action="{{ route('agent.tickets.take', $ticket) }}"
@@ -146,7 +160,7 @@
                                     </button>
                                 </form>
 
-                            {{-- 2️⃣ Chamado assumido pelo usuário logado --}}
+                            {{-- 2️⃣ Em atendimento pelo próprio agente --}}
                             @elseif ($ticket->assigned_to === auth()->id())
                                 <a href="{{ route('agent.tickets.show', $ticket) }}"
                                    class="px-2 py-0.5 text-[11px] rounded
@@ -154,7 +168,7 @@
                                     Continuar
                                 </a>
 
-                            {{-- 3️⃣ Chamado em atendimento por outro operador --}}
+                            {{-- 3️⃣ Em atendimento por outro agente --}}
                             @else
                                 <span
                                     class="px-2 py-0.5 text-[11px] rounded

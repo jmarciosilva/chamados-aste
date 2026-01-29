@@ -32,8 +32,12 @@ class TicketMessage extends Model
         return $this->belongsTo(Ticket::class);
     }
 
-    // Mensagem pertence a um usuário
-    public function user(): BelongsTo
+    public function attachments()
+    {
+        return $this->hasMany(TicketAttachment::class, 'ticket_message_id');
+    }
+
+    public function user()
     {
         return $this->belongsTo(User::class);
     }

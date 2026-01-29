@@ -113,7 +113,7 @@ class AgentTicketController extends Controller
          */
         $ticket->load([
             'messages.user',
-            'attachments',
+            'messages.attachments',
             'requester',
             'department',
             'groupHistories.fromGroup',
@@ -129,27 +129,53 @@ class AgentTicketController extends Controller
          * --------------------------------------------------------------
          */
         $timeline = collect();
-        $attachments = $ticket->attachments->sortBy('created_at');
+        // $attachments = $ticket->attachments->sortBy('created_at');
 
         // Mensagens
-        foreach ($ticket->messages as $message) {
+//        foreach ($ticket->messages as $message) {
 
-            // Anexos próximos à mensagem (janela de 10s)
-            $relatedAttachments = $attachments->filter(
-                fn ($attachment) => $attachment->created_at->between(
-                    $message->created_at,
-                    $message->created_at->copy()->addSeconds(10)
-                )
-            );
+//     $relatedAttachments = $attachments->filter(
+//         fn ($attachment) => $attachment->created_at->between(
+//             $message->created_at,
+//             $message->created_at->copy()->addSeconds(10)
+//         )
+//     );
 
-            $timeline->push([
-                'type' => 'message',
-                'user' => $message->user->name ?? 'Sistema',
-                'content' => $message->message,
-                'created_at' => $message->created_at,
-                'attachments' => $relatedAttachments,
-            ]);
-        }
+//     $timeline->push([
+//         'type'        => 'message',
+
+//         // 🔑 CAMPOS ESTRUTURAIS
+//         'user_id'     => $message->user_id,           // <<< ESSENCIAL
+//         'user'        => $message->user->name ?? 'Sistema',
+//         'is_internal' => (bool) $message->is_internal_note,
+
+//         // 📄 CONTEÚDO
+//         'content'     => $message->message,
+//         'created_at'  => $message->created_at,
+//         'attachments' => $relatedAttachments,
+//     ]);
+// }
+
+foreach ($ticket->messages as $message) {
+
+    $timeline->push([
+        'type'        => 'message',
+
+        // Identidade
+        'user_id'     => $message->user_id,
+        'user'        => $message->user->name ?? 'Sistema',
+        'is_internal' => (bool) $message->is_internal_note,
+
+        // Conteúdo
+        'content'     => $message->message,
+        'created_at'  => $message->created_at,
+
+        // ✅ ANEXOS CORRETOS
+        'attachments' => $message->attachments,
+    ]);
+}
+
+
 
         // Transferências de grupo (Escalonamento ITIL)
         foreach ($ticket->groupHistories as $history) {
@@ -217,22 +243,15 @@ class AgentTicketController extends Controller
 
     /**
      * ==============================================================
-     * ATENDIMENTO DO CHAMADO
+     * ATENDIMENTO DO CHAMADO (OPERADOR / ESPECIALISTA)
      * ==============================================================
      */
     public function update(Request $request, Ticket $ticket)
     {
         if ($ticket->status === TicketStatus::CLOSED) {
-            return back()->withErrors(
-                'Chamados fechados não podem ser alterados.'
-            );
+            return back()->withErrors('Chamados fechados não podem ser alterados.');
         }
 
-        /**
-         * --------------------------------------------------------------
-         * Validação
-         * --------------------------------------------------------------
-         */
         $validated = $request->validate([
             'message' => 'nullable|string',
             'message_type' => 'required|in:user,internal,closing',
@@ -242,32 +261,25 @@ class AgentTicketController extends Controller
         ]);
 
         /**
-         * --------------------------------------------------------------
-         * 1️⃣ Registro da mensagem
-         * --------------------------------------------------------------
+         * ============================================================
+         * 1️⃣ REGISTRA A MENSAGEM (SE EXISTIR)
+         * ============================================================
          */
-        if (! empty(trim($validated['message'] ?? ''))) {
+        $messageModel = null;
+        $hasMessage = trim($validated['message'] ?? '') !== '';
 
-            $isInternal = $validated['message_type'] === 'internal';
-
-            $ticket->messages()->create([
+        if ($hasMessage) {
+            $messageModel = $ticket->messages()->create([
                 'user_id' => auth()->id(),
                 'message' => $validated['message'],
-                'is_internal_note' => $isInternal,
+                'is_internal_note' => $validated['message_type'] === 'internal',
             ]);
-
-            /**
-             * Pausa SLA SOMENTE quando operador fala com o usuário
-             */
-            if ($validated['message_type'] === 'user') {
-                $ticket->pauseSla();
-            }
         }
 
         /**
-         * --------------------------------------------------------------
-         * 2️⃣ Upload de anexos
-         * --------------------------------------------------------------
+         * ============================================================
+         * 2️⃣ UPLOAD DE ANEXOS (VINCULADO À MENSAGEM)
+         * ============================================================
          */
         if ($request->hasFile('attachments')) {
             foreach ($request->file('attachments') as $file) {
@@ -275,6 +287,7 @@ class AgentTicketController extends Controller
                 $path = $file->store("tickets/{$ticket->id}", 'public');
 
                 $ticket->attachments()->create([
+                    'ticket_message_id' => optional($messageModel)->id,
                     'original_name' => $file->getClientOriginalName(),
                     'file_path' => $path,
                     'mime_type' => $file->getMimeType(),
@@ -285,13 +298,30 @@ class AgentTicketController extends Controller
         }
 
         /**
-         * --------------------------------------------------------------
-         * 3️⃣ Status / Prioridade
-         * --------------------------------------------------------------
+         * ============================================================
+         * 3️⃣ REGRA ITIL — PERGUNTA AO USUÁRIO
+         * ============================================================
+         */
+        if ($validated['message_type'] === 'user' && $hasMessage) {
+
+            $ticket->pauseSla();
+
+            $ticket->update([
+                'status' => TicketStatus::WAITING_USER,
+            ]);
+
+            $ticket->addSystemMessage(
+                'O atendimento está aguardando a resposta do usuário.'
+            );
+        }
+
+        /**
+         * ============================================================
+         * 4️⃣ ENCERRAMENTO
+         * ============================================================
          */
         if ($validated['status'] === 'resolved') {
 
-            // Mensagem automática de encerramento
             if ($validated['message_type'] !== 'internal') {
                 $ticket->addSystemMessage(
                     'Seu chamado foi finalizado e marcado como resolvido.'
@@ -304,14 +334,20 @@ class AgentTicketController extends Controller
                 'resolved_at' => now(),
             ]);
 
-        } else {
-
-            $ticket->update([
-                'status' => TicketStatus::IN_PROGRESS,
-                'priority' => Priority::from($validated['priority']),
-                'assigned_to' => $ticket->assigned_to ?? auth()->id(),
-            ]);
+            return redirect()
+                ->route('agent.tickets.show', $ticket)
+                ->with('success', 'Chamado encerrado com sucesso.');
         }
+
+        /**
+         * ============================================================
+         * 5️⃣ ATUALIZAÇÕES GERAIS
+         * ============================================================
+         */
+        $ticket->update([
+            'priority' => Priority::from($validated['priority']),
+            'assigned_to' => $ticket->assigned_to ?? auth()->id(),
+        ]);
 
         return redirect()
             ->route('agent.tickets.show', $ticket)
@@ -332,13 +368,15 @@ class AgentTicketController extends Controller
             );
         }
 
+        $agent = auth()->user();
+
         $ticket->update([
             'assigned_to' => auth()->id(),
             'status' => TicketStatus::IN_PROGRESS,
         ]);
 
         $ticket->addSystemMessage(
-            'Seu chamado foi assumido por um operador e o atendimento foi iniciado.'
+            "Seu chamado foi assumido por {$agent->name} e o atendimento foi iniciado."
         );
 
         return redirect()->route('agent.tickets.show', $ticket);

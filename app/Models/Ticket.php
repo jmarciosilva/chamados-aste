@@ -77,7 +77,7 @@ class Ticket extends Model
         return $this->belongsTo(Product::class);
     }
 
-    public function problemCategory(): BelongsTo
+    public function problemCategory()
     {
         return $this->belongsTo(ProblemCategory::class);
     }
@@ -254,7 +254,7 @@ class Ticket extends Model
             ],
             TicketStatus::WAITING_USER => [
                 'label' => 'Aguardando Usuário',
-                'color' => 'bg-orange-100 text-orange-700',
+                'color' => 'bg-orange-100 text-orange-700 border border-orange-300',
             ],
             TicketStatus::RESOLVED => [
                 'label' => 'Resolvido',
