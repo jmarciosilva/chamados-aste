@@ -13,9 +13,10 @@
     <!-- ============================================================
     | TABELA DE CHAMADOS FECHADOS
     |------------------------------------------------------------
-    | Regra:
-    | - status = closed
-    | - resolved_at NOT NULL
+    | Regras de exibição:
+    | - status = RESOLVED ou CLOSED
+    | - resolved_at preenchido
+    | - Ordenação feita no controller
     |============================================================ -->
     <div class="bg-white rounded-xl shadow overflow-hidden">
 
@@ -26,7 +27,8 @@
                     <th class="px-4 py-3 text-left">Título</th>
                     <th class="px-4 py-3 text-left">Solicitante</th>
                     <th class="px-4 py-3 text-left">Departamento</th>
-                    <th class="px-4 py-3 text-left">Prioridade</th>
+                    {{-- <th class="px-4 py-3 text-left">Prioridade</th> --}}
+                    <th class="px-4 py-3 text-left">Status</th>
                     <th class="px-4 py-3 text-left">Fechado em</th>
                     <th class="px-4 py-3 text-right">Ação</th>
                 </tr>
@@ -39,10 +41,10 @@
                     @php
                         /**
                          * ----------------------------------------------------------
-                         * Cores visuais (UI)
+                         * PRIORIDADE — cores visuais
                          * ----------------------------------------------------------
-                         * Banco: inglês
-                         * Interface: português (via accessors)
+                         * Banco: enum (critical, high, medium, low)
+                         * UI: cores semânticas
                          */
                         $priorityColor = match ($ticket->priority) {
                             'critical' => 'bg-red-100 text-red-700',
@@ -51,6 +53,16 @@
                             'low'      => 'bg-green-100 text-green-700',
                             default    => 'bg-slate-100 text-slate-600',
                         };
+
+                        /**
+                         * ----------------------------------------------------------
+                         * STATUS — via accessor do Model (statusBadge)
+                         * ----------------------------------------------------------
+                         * Ex:
+                         * - Resolvido
+                         * - Fechado
+                         */
+                        $statusBadge = $ticket->statusBadge();
                     @endphp
 
                     <tr class="hover:bg-slate-50">
@@ -75,16 +87,23 @@
                             {{ $ticket->department->name ?? '—' }}
                         </td>
 
-                        <!-- Prioridade (PT-BR via accessor) -->
-                        <td class="px-4 py-3">
+                        <!-- Prioridade -->
+                        {{-- <td class="px-4 py-3">
                             <span class="px-2 py-0.5 rounded text-[11px] {{ $priorityColor }}">
                                 {{ $ticket->priority_label }}
                             </span>
+                        </td> --}}
+
+                        <!-- Status -->
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-0.5 rounded text-[11px] {{ $statusBadge['color'] }}">
+                                {{ $statusBadge['label'] }}
+                            </span>
                         </td>
 
-                        <!-- Data de fechamento -->
+                        <!-- Data de fechamento / resolução -->
                         <td class="px-4 py-3 text-slate-500">
-                            {{ $ticket->resolved_at?->format('d/m/Y H:i') }}
+                            {{ $ticket->resolved_at?->format('d/m/Y H:i') ?? '—' }}
                         </td>
 
                         <!-- Ação -->
@@ -100,7 +119,7 @@
 
                 @empty
                     <tr>
-                        <td colspan="7" class="px-4 py-6 text-center text-slate-500">
+                        <td colspan="8" class="px-4 py-6 text-center text-slate-500">
                             Nenhum chamado fechado ainda.
                         </td>
                     </tr>

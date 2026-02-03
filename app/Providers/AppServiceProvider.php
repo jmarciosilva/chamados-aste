@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\ServiceProvider;
+use App\Console\Commands\CloseResolvedTickets;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -21,6 +22,16 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Carbon::setLocale('pt_BR');
+         /**
+         * ----------------------------------------------------------
+         * REGISTRO DE COMMANDS (Laravel 11)
+         * ----------------------------------------------------------
+         */
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                CloseResolvedTickets::class,
+            ]);
+        }
     }
 
 }

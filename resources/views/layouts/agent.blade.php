@@ -86,6 +86,7 @@
     | SCRIPTS ESPECÍFICOS DAS VIEWS
     |============================================================ -->
     @yield('scripts')
+    @stack('scripts')
 
 </body>
 

@@ -2,14 +2,20 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Model SupportGroup
+ *
+ * Representa um Grupo de Atendimento (ITIL v4)
+ */
 class SupportGroup extends Model
 {
+    use HasFactory;
+
     /**
-     * ------------------------------------------------------------------
-     * CAMPOS PERMITIDOS PARA MASS ASSIGNMENT
-     * ------------------------------------------------------------------
+     * Campos liberados para mass assignment
      */
     protected $fillable = [
         'name',
@@ -21,38 +27,27 @@ class SupportGroup extends Model
     ];
 
     /**
-     * ------------------------------------------------------------------
-     * RELACIONAMENTOS
-     * ------------------------------------------------------------------
+     * Técnicos/usuários pertencentes ao grupo
      */
+    public function users()
+    {
+        return $this->belongsToMany(User::class)
+            ->withTimestamps();
+    }
 
-    // Usuário que criou o grupo
+    /**
+     * Usuário que criou o grupo (admin)
+     */
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    // Chamados atualmente atribuídos ao grupo
+    /**
+     * Chamados associados ao grupo
+     */
     public function tickets()
     {
-        return $this->hasMany(Ticket::class, 'current_group_id');
-    }
-
-    /**
-     * ------------------------------------------------------------------
-     * SCOPES (UTILITÁRIOS)
-     * ------------------------------------------------------------------
-     */
-
-    // Apenas grupos ativos
-    public function scopeActive($query)
-    {
-        return $query->where('is_active', true);
-    }
-
-    // SupportGroup.php
-    public function users()
-    {
-        return $this->belongsToMany(User::class);
+        return $this->hasMany(Ticket::class);
     }
 }

@@ -6,8 +6,9 @@ use App\Enums\Priority;
 use App\Enums\TicketStatus;
 use App\Models\SupportGroup;
 use App\Models\Ticket;
-use App\Models\User;
 use Illuminate\Http\Request;
+use App\Models\User;
+use App\Services\TicketQueueService;
 
 class AgentTicketController extends Controller
 {
@@ -26,9 +27,11 @@ class AgentTicketController extends Controller
      * FILA DE CHAMADOS (OPERADOR / ESPECIALISTA)
      * ==============================================================
      */
-    public function queue()
+    public function queue(TicketQueueService $queueService)
     {
         $user = auth()->user();
+
+        $tickets = $queueService->getQueue();
 
         /**
          * --------------------------------------------------------------
@@ -46,7 +49,7 @@ class AgentTicketController extends Controller
                 ->whereNotNull('assigned_to')
                 ->count();
 
-            $resolvedTodayCount = Ticket::where('status', TicketStatus::CLOSED)
+            $resolvedTodayCount = Ticket::where('status', TicketStatus::RESOLVED)
                 ->whereDate('resolved_at', now())
                 ->count();
 
@@ -100,84 +103,40 @@ class AgentTicketController extends Controller
 
     /**
      * ==============================================================
-     * VISUALIZAÇÃO DO CHAMADO (AGENT)
-     * - Timeline unificada (ITIL v4)
+     * VISUALIZAR CHAMADO (OPERADOR / ESPECIALISTA)
      * ==============================================================
      */
     public function show(Ticket $ticket)
     {
-        /**
-         * --------------------------------------------------------------
-         * Carregamento completo do contexto do chamado
-         * --------------------------------------------------------------
-         */
         $ticket->load([
-            'messages.user',
-            'messages.attachments',
+            'product',
+            'problemCategory',
             'requester',
             'department',
+            'currentGroup',
+            'assignedAgent',
+            'messages.user',
+            'messages.attachments',
             'groupHistories.fromGroup',
             'groupHistories.toGroup',
             'groupHistories.user',
         ]);
 
-        /**
-         * --------------------------------------------------------------
-         * TIMELINE UNIFICADA
-         * - Mensagens
-         * - Transferências de grupo
-         * --------------------------------------------------------------
-         */
+        // Montagem da timeline (igual à atual)
         $timeline = collect();
-        // $attachments = $ticket->attachments->sortBy('created_at');
 
-        // Mensagens
-//        foreach ($ticket->messages as $message) {
+        foreach ($ticket->messages as $message) {
+            $timeline->push([
+                'type' => 'message',
+                'user_id' => $message->user_id,
+                'user' => $message->user->name ?? 'Sistema',
+                'is_internal' => (bool) $message->is_internal_note,
+                'content' => $message->message,
+                'created_at' => $message->created_at,
+                'attachments' => $message->attachments ?? collect(),
+            ]);
+        }
 
-//     $relatedAttachments = $attachments->filter(
-//         fn ($attachment) => $attachment->created_at->between(
-//             $message->created_at,
-//             $message->created_at->copy()->addSeconds(10)
-//         )
-//     );
-
-//     $timeline->push([
-//         'type'        => 'message',
-
-//         // 🔑 CAMPOS ESTRUTURAIS
-//         'user_id'     => $message->user_id,           // <<< ESSENCIAL
-//         'user'        => $message->user->name ?? 'Sistema',
-//         'is_internal' => (bool) $message->is_internal_note,
-
-//         // 📄 CONTEÚDO
-//         'content'     => $message->message,
-//         'created_at'  => $message->created_at,
-//         'attachments' => $relatedAttachments,
-//     ]);
-// }
-
-foreach ($ticket->messages as $message) {
-
-    $timeline->push([
-        'type'        => 'message',
-
-        // Identidade
-        'user_id'     => $message->user_id,
-        'user'        => $message->user->name ?? 'Sistema',
-        'is_internal' => (bool) $message->is_internal_note,
-
-        // Conteúdo
-        'content'     => $message->message,
-        'created_at'  => $message->created_at,
-
-        // ✅ ANEXOS CORRETOS
-        'attachments' => $message->attachments,
-    ]);
-}
-
-
-
-        // Transferências de grupo (Escalonamento ITIL)
         foreach ($ticket->groupHistories as $history) {
             if (! $history->from_group_id) {
                 continue;
@@ -196,21 +155,31 @@ foreach ($ticket->messages as $message) {
 
         $timeline = $timeline->sortBy('created_at');
 
+        $sla = $ticket->slaBadge();
+
         /**
-         * --------------------------------------------------------------
-         * Grupos disponíveis para encaminhamento
-         * --------------------------------------------------------------
+         * ----------------------------------------------------------
+         * DESVIO DE VIEW CONFORME STATUS
+         * ----------------------------------------------------------
          */
+        if (in_array($ticket->status, [
+            \App\Enums\TicketStatus::RESOLVED,
+            \App\Enums\TicketStatus::CLOSED,
+        ])) {
+            return view('agent.tickets.show-closed', compact(
+                'ticket',
+                'timeline',
+                'sla'
+            ));
+        }
+
+        // Grupos disponíveis para encaminhamento
         $groups = SupportGroup::where('is_active', true)
             ->where('id', '!=', $ticket->current_group_id)
             ->orderBy('name')
             ->get();
 
-        /**
-         * --------------------------------------------------------------
-         * Especialistas do grupo atual
-         * --------------------------------------------------------------
-         */
+        // Especialistas do grupo atual
         $specialists = collect();
 
         if ($ticket->current_group_id) {
@@ -225,13 +194,6 @@ foreach ($ticket->messages as $message) {
                 ->get();
         }
 
-        /**
-         * --------------------------------------------------------------
-         * SLA (badge pronto para UI)
-         * --------------------------------------------------------------
-         */
-        $sla = $ticket->slaBadge();
-
         return view('agent.tickets.show', compact(
             'ticket',
             'timeline',
@@ -239,6 +201,7 @@ foreach ($ticket->messages as $message) {
             'groups',
             'specialists'
         ));
+
     }
 
     /**
@@ -248,46 +211,39 @@ foreach ($ticket->messages as $message) {
      */
     public function update(Request $request, Ticket $ticket)
     {
-        if ($ticket->status === TicketStatus::CLOSED) {
-            return back()->withErrors('Chamados fechados não podem ser alterados.');
-        }
-
         $validated = $request->validate([
-            'message' => 'nullable|string',
+            'message' => 'required|string',
             'message_type' => 'required|in:user,internal,closing',
-            'status' => 'required|in:in_progress,resolved',
-            'priority' => 'required|in:low,medium,high,critical',
+            'priority' => 'nullable|in:low,medium,high,critical',
+            'status' => 'nullable|in:in_progress,resolved',
             'attachments.*' => 'nullable|file|max:51200',
         ]);
 
         /**
-         * ============================================================
-         * 1️⃣ REGISTRA A MENSAGEM (SE EXISTIR)
-         * ============================================================
+         * --------------------------------------------------------------
+         * CRIAR MENSAGEM
+         * --------------------------------------------------------------
          */
-        $messageModel = null;
-        $hasMessage = trim($validated['message'] ?? '') !== '';
+        $isInternal = $validated['message_type'] === 'internal';
+        $isClosing = $validated['message_type'] === 'closing';
 
-        if ($hasMessage) {
-            $messageModel = $ticket->messages()->create([
-                'user_id' => auth()->id(),
-                'message' => $validated['message'],
-                'is_internal_note' => $validated['message_type'] === 'internal',
-            ]);
-        }
+        $ticketMessage = $ticket->messages()->create([
+            'user_id' => auth()->id(),
+            'message' => $validated['message'],
+            'is_internal_note' => $isInternal,
+        ]);
 
         /**
-         * ============================================================
-         * 2️⃣ UPLOAD DE ANEXOS (VINCULADO À MENSAGEM)
-         * ============================================================
+         * --------------------------------------------------------------
+         * ANEXOS
+         * --------------------------------------------------------------
          */
         if ($request->hasFile('attachments')) {
             foreach ($request->file('attachments') as $file) {
-
-                $path = $file->store("tickets/{$ticket->id}", 'public');
+                $path = $file->store('tickets/attachments', 'public');
 
                 $ticket->attachments()->create([
-                    'ticket_message_id' => optional($messageModel)->id,
+                    'ticket_message_id' => $ticketMessage->id,
                     'original_name' => $file->getClientOriginalName(),
                     'file_path' => $path,
                     'mime_type' => $file->getMimeType(),
@@ -298,12 +254,12 @@ foreach ($ticket->messages as $message) {
         }
 
         /**
-         * ============================================================
-         * 3️⃣ REGRA ITIL — PERGUNTA AO USUÁRIO
-         * ============================================================
+         * --------------------------------------------------------------
+         * LÓGICA DE STATUS E SLA
+         * --------------------------------------------------------------
          */
-        if ($validated['message_type'] === 'user' && $hasMessage) {
-
+        if ($validated['message_type'] === 'user') {
+            // Mensagem para usuário → PAUSA SLA
             $ticket->pauseSla();
 
             $ticket->update([
@@ -311,43 +267,40 @@ foreach ($ticket->messages as $message) {
             ]);
 
             $ticket->addSystemMessage(
-                'O atendimento está aguardando a resposta do usuário.'
+                'O operador solicitou informações adicionais. Aguardando resposta do usuário.'
+            );
+        }
+
+        if ($isClosing) {
+            // Finalização do chamado
+            $ticket->update([
+                'status' => TicketStatus::RESOLVED,
+                'resolved_at' => now(),
+            ]);
+
+            $ticket->addSystemMessage(
+                'Chamado finalizado por '.auth()->user()->name
             );
         }
 
         /**
-         * ============================================================
-         * 4️⃣ ENCERRAMENTO
-         * ============================================================
+         * --------------------------------------------------------------
+         * ATUALIZAR PRIORIDADE E STATUS (SE INFORMADOS)
+         * --------------------------------------------------------------
          */
-        if ($validated['status'] === 'resolved') {
+        $updates = [];
 
-            if ($validated['message_type'] !== 'internal') {
-                $ticket->addSystemMessage(
-                    'Seu chamado foi finalizado e marcado como resolvido.'
-                );
-            }
-
-            $ticket->update([
-                'status' => TicketStatus::CLOSED,
-                'priority' => Priority::from($validated['priority']),
-                'resolved_at' => now(),
-            ]);
-
-            return redirect()
-                ->route('agent.tickets.show', $ticket)
-                ->with('success', 'Chamado encerrado com sucesso.');
+        if (isset($validated['priority'])) {
+            $updates['priority'] = Priority::from($validated['priority']);
         }
 
-        /**
-         * ============================================================
-         * 5️⃣ ATUALIZAÇÕES GERAIS
-         * ============================================================
-         */
-        $ticket->update([
-            'priority' => Priority::from($validated['priority']),
-            'assigned_to' => $ticket->assigned_to ?? auth()->id(),
-        ]);
+        if (isset($validated['status'])) {
+            $updates['status'] = TicketStatus::from($validated['status']);
+        }
+
+        if (! empty($updates)) {
+            $ticket->update($updates);
+        }
 
         return redirect()
             ->route('agent.tickets.show', $ticket)
@@ -361,14 +314,11 @@ foreach ($ticket->messages as $message) {
      */
     public function take(Ticket $ticket)
     {
-        if ($ticket->assigned_to) {
-            return back()->with(
-                'error',
-                'Este chamado já está em atendimento.'
-            );
-        }
-
-        $agent = auth()->user();
+        abort_if(
+            $ticket->assigned_to !== null,
+            403,
+            'Chamado já está atribuído.'
+        );
 
         $ticket->update([
             'assigned_to' => auth()->id(),
@@ -376,10 +326,54 @@ foreach ($ticket->messages as $message) {
         ]);
 
         $ticket->addSystemMessage(
-            "Seu chamado foi assumido por {$agent->name} e o atendimento foi iniciado."
+            auth()->user()->name.' assumiu o atendimento deste chamado.'
         );
 
-        return redirect()->route('agent.tickets.show', $ticket);
+        return back()->with('success', 'Chamado assumido com sucesso.');
+    }
+
+    /**
+     * ==============================================================
+     * ENCAMINHAR CHAMADO (ITIL)
+     * ==============================================================
+     */
+    public function forward(Request $request, Ticket $ticket)
+    {
+        $validated = $request->validate([
+            'to_group_id' => 'required|exists:support_groups,id',
+            'assigned_to' => 'nullable|exists:users,id',
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        /**
+         * --------------------------------------------------------------
+         * HISTÓRICO DE TRANSFERÊNCIA (ITIL)
+         * --------------------------------------------------------------
+         */
+        $ticket->groupHistories()->create([
+            'from_group_id' => $ticket->current_group_id,
+            'to_group_id' => $validated['to_group_id'],
+            'changed_by' => auth()->id(),
+            'note' => $validated['note'] ?? 'Encaminhamento de grupo',
+        ]);
+
+        /**
+         * --------------------------------------------------------------
+         * ATUALIZAR TICKET
+         * --------------------------------------------------------------
+         */
+        $ticket->update([
+            'current_group_id' => $validated['to_group_id'],
+            'assigned_to' => $validated['assigned_to'] ?? null,
+        ]);
+
+        $toGroup = SupportGroup::find($validated['to_group_id']);
+
+        $ticket->addSystemMessage(
+            "Chamado encaminhado para o grupo: {$toGroup->name}"
+        );
+
+        return back()->with('success', 'Chamado encaminhado com sucesso.');
     }
 
     /**
@@ -389,12 +383,11 @@ foreach ($ticket->messages as $message) {
      */
     public function closedQueue()
     {
-        $tickets = Ticket::with([
-            'requester',
-            'department',
-            'assignedAgent',
-        ])
-            ->where('status', TicketStatus::CLOSED)
+        $tickets = Ticket::with(['requester', 'department', 'assignedAgent'])
+            ->whereIn('status', [
+                TicketStatus::RESOLVED,
+                TicketStatus::CLOSED,
+            ])
             ->orderByDesc('resolved_at')
             ->paginate(20);
 
@@ -403,121 +396,50 @@ foreach ($ticket->messages as $message) {
 
     /**
      * ==============================================================
-     * UPLOAD DE IMAGEM (EDITOR DO OPERADOR)
+     * REABRIR CHAMADO (AGENT / ADMIN)
      * ==============================================================
      */
-    public function uploadImage(Request $request)
+    public function reopen(Ticket $ticket)
     {
-        $request->validate([
-            'upload' => 'required|image|max:51200',
+        /**
+         * ----------------------------------------------------------
+         * REGRA DE SEGURANÇA
+         * ----------------------------------------------------------
+         * Somente chamados resolvidos ou fechados podem ser reabertos
+         */
+        if (! in_array($ticket->status, [
+            TicketStatus::RESOLVED,
+            TicketStatus::CLOSED,
+        ])) {
+            abort(403, 'Este chamado não pode ser reaberto.');
+        }
+
+        /**
+         * ----------------------------------------------------------
+         * REABERTURA DO CHAMADO
+         * ----------------------------------------------------------
+         * - Volta para atendimento
+         * - Retoma SLA
+         */
+        $ticket->update([
+            'status' => TicketStatus::IN_PROGRESS,
+            'resolved_at' => null,
+            'closed_at' => null,
         ]);
 
-        $path = $request->file('upload')
-            ->store('tickets/temp', 'public');
-
-        return response()->json([
-            'url' => asset('storage/'.$path),
-        ]);
-    }
-
-    /**
-     * ==============================================================
-     * ENCAMINHAR CHAMADO (GRUPO E/OU ESPECIALISTA)
-     * ==============================================================
-     */
-    public function forward(Request $request, Ticket $ticket)
-    {
-        if ($ticket->status === TicketStatus::CLOSED) {
-            return back()->withErrors(
-                'Chamado fechado não pode ser encaminhado.'
-            );
-        }
-
-        $validated = $request->validate([
-            'to_group_id' => 'nullable|exists:support_groups,id',
-            'assigned_to' => 'nullable|exists:users,id',
-            'note' => 'nullable|string|max:1000',
-        ]);
+        $ticket->resumeSla();
 
         /**
          * ----------------------------------------------------------
-         * Resolver grupo destino
+         * MENSAGEM DE SISTEMA
          * ----------------------------------------------------------
          */
-        $toGroupId = $validated['to_group_id'] ?? $ticket->current_group_id;
-        $toGroup = $toGroupId ? SupportGroup::find($toGroupId) : null;
+        $ticket->addSystemMessage(
+            'Chamado reaberto por '.auth()->user()->name.'.'
+        );
 
-        /**
-         * ----------------------------------------------------------
-         * Resolver especialista (se houver)
-         * ----------------------------------------------------------
-         */
-        $specialist = null;
-
-        if (! empty($validated['assigned_to'])) {
-
-            $specialist = User::where('id', $validated['assigned_to'])
-                ->where('role', 'agent')
-                ->where('agent_type', 'specialist')
-                ->firstOrFail();
-
-            // Se grupo não foi informado, usar grupo do especialista
-            if (! $toGroup) {
-                $toGroup = $specialist->supportGroups()->first();
-                $toGroupId = $toGroup?->id;
-            }
-
-            // Validação ITIL: especialista precisa pertencer ao grupo
-            if ($toGroup && ! $specialist->supportGroups()
-                ->where('support_groups.id', $toGroup->id)
-                ->exists()) {
-
-                return back()->withErrors(
-                    'O especialista selecionado não pertence ao grupo informado.'
-                );
-            }
-        }
-
-        /**
-         * ----------------------------------------------------------
-         * Histórico de grupo (se mudou)
-         * ----------------------------------------------------------
-         */
-        if ($toGroupId && $toGroupId !== $ticket->current_group_id) {
-
-            $ticket->groupHistories()->create([
-                'from_group_id' => $ticket->current_group_id,
-                'to_group_id' => $toGroupId,
-                'changed_by' => auth()->id(),
-                'note' => $validated['note'],
-            ]);
-
-            $ticket->update([
-                'current_group_id' => $toGroupId,
-            ]);
-
-            $ticket->addSystemMessage(
-                "Seu chamado foi encaminhado para o grupo '{$toGroup->name}'."
-            );
-        }
-
-        /**
-         * ----------------------------------------------------------
-         * Atribuição ao especialista
-         * ----------------------------------------------------------
-         */
-        if ($specialist) {
-
-            $ticket->update([
-                'assigned_to' => $specialist->id,
-                'status' => TicketStatus::IN_PROGRESS,
-            ]);
-
-            $ticket->addSystemMessage(
-                "Seu chamado foi atribuído ao especialista {$specialist->name}."
-            );
-        }
-
-        return back()->with('success', 'Chamado encaminhado com sucesso.');
+        return redirect()
+            ->route('agent.tickets.show', $ticket)
+            ->with('success', 'Chamado reaberto com sucesso.');
     }
 }

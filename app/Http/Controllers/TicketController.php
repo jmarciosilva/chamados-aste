@@ -7,6 +7,7 @@ use App\Enums\ServiceType;
 use App\Enums\TicketStatus;
 use App\Models\ProblemCategory;
 use App\Models\Product;
+use App\Models\ProductImpactAnswer;
 use App\Models\Sla;
 use App\Models\SupportGroup;
 use App\Models\Ticket;
@@ -43,6 +44,7 @@ class TicketController extends Controller
          * ------------------------------------------------------------
          */
         $products = Product::active()
+            ->with('impactQuestion.answers') // 🔥 importante
             ->orderBy('name')
             ->get();
 
@@ -73,11 +75,7 @@ class TicketController extends Controller
                     ->values();
             });
 
-        return view('user.tickets.create', compact(
-            'products',
-            'categories',
-            'slas'
-        ));
+        return view('user.tickets.create', compact('products'));
     }
 
     /**
@@ -85,46 +83,28 @@ class TicketController extends Controller
      * ARMAZENAR NOVO CHAMADO
      * ============================================================
      */
-    public function store(
-        Request $request,
-        AttachmentService $attachmentService
-    ) {
-        /**
-         * ============================================================
-         * CAPTURA BRUTA (ANTES DO VALIDATE)
-         * ============================================================
-         */
-        $rawDescription = trim($request->input('description', ''));
-
-        /**
-         * ============================================================
-         * VALIDAÇÃO
-         * ============================================================
-         */
+    public function store(Request $request, AttachmentService $attachmentService)
+    {
+        /* ============================================================
+           VALIDAÇÃO
+        ============================================================ */
         $validated = $request->validate([
             'subject' => 'required|string|max:255',
 
             'product_id' => 'required|exists:products,id',
             'service_type' => 'required|in:'.implode(',', array_column(ServiceType::cases(), 'value')),
 
+            'impact_answer_id' => 'required|exists:product_impact_answers,id',
+
             'description' => 'nullable|string',
             'attachments.*' => 'nullable|file|max:51200',
-
-            'criticality' => 'required|in:'.implode(',', array_column(Criticality::cases(), 'value')),
         ]);
 
-        /**
-         * ============================================================
-         * NORMALIZA DESCRIÇÃO
-         * ============================================================
-         */
-        $description = trim($validated['description'] ?? '');
+        /* ============================================================
+           REGRA — TEXTO OU ANEXO
+        ============================================================ */
+        $rawDescription = trim($request->input('description', ''));
 
-        /**
-         * ============================================================
-         * REGRA DE NEGÓCIO — DESCRIÇÃO OU ANEXO
-         * ============================================================
-         */
         $hasText = trim(strip_tags($rawDescription)) !== '';
         $hasInlineImage = str_contains($rawDescription, '<img');
         $hasAttachment = $request->hasFile('attachments');
@@ -137,18 +117,14 @@ class TicketController extends Controller
                 ->withInput();
         }
 
-        /**
-         * ============================================================
-         * GRUPO DE ENTRADA
-         * ============================================================
-         */
+        /* ============================================================
+           GRUPO DE ENTRADA
+        ============================================================ */
         $serviceDesk = SupportGroup::where('is_entry_point', true)->firstOrFail();
 
-        /**
-         * ============================================================
-         * CÓDIGO DO CHAMADO
-         * ============================================================
-         */
+        /* ============================================================
+           CÓDIGO DO CHAMADO
+        ============================================================ */
         $monthYear = now()->format('my');
 
         $lastTicket = Ticket::where('code', 'like', "CH{$monthYear}-%")
@@ -159,21 +135,19 @@ class TicketController extends Controller
             ? intval(substr($lastTicket->code, -6)) + 1
             : 1;
 
-        $code = sprintf('CH%s-%06d', $monthYear, $sequence);
+        $code = sprintf('%s-%06d', $monthYear, $sequence);
 
-        /**
-         * ============================================================
-         * CRITICIDADE → PRIORIDADE
-         * ============================================================
-         */
-        $criticality = Criticality::from($validated['criticality']);
+        /* ============================================================
+           IMPACTO → CRITICIDADE → PRIORIDADE
+        ============================================================ */
+        $impactAnswer = ProductImpactAnswer::findOrFail($validated['impact_answer_id']);
+
+        $criticality = Criticality::from($impactAnswer->priority);
         $priority = $criticality->toPriority();
 
-        /**
-         * ============================================================
-         * SLA
-         * ============================================================
-         */
+        /* ============================================================
+           SLA
+        ============================================================ */
         $sla = Sla::matchRule(
             $validated['product_id'],
             ServiceType::from($validated['service_type']),
@@ -181,21 +155,16 @@ class TicketController extends Controller
         )->first()
             ?? Sla::defaultForProduct($validated['product_id'])->first();
 
-        /**
-         * ============================================================
-         * CRIAÇÃO DO CHAMADO
-         * ============================================================
-         */
+        /* ============================================================
+           CRIA TICKET
+        ============================================================ */
         $ticket = Ticket::create([
             'code' => $code,
             'subject' => $validated['subject'],
-            'description' => $description,
+            'description' => trim($validated['description'] ?? ''),
 
             'product_id' => $validated['product_id'],
             'service_type' => ServiceType::from($validated['service_type']),
-
-            // 🔥 categoria removida do fluxo
-            // 'problem_category_id' => null,
 
             'priority' => $priority,
             'status' => TicketStatus::OPEN,
@@ -206,38 +175,34 @@ class TicketController extends Controller
             'sla_started_at' => now(),
             'sla_status' => 'running',
 
+            'impact_answer_id' => $impactAnswer->id,
+
             'requester_id' => auth()->id(),
             'department_id' => auth()->user()->department_id,
             'current_group_id' => $serviceDesk->id,
         ]);
 
-        /**
-         * ============================================================
-         * PRIMEIRA MENSAGEM
-         * ============================================================
-         */
-        $initialMessage = null;
-
+        /* ============================================================
+           MENSAGEM INICIAL
+        ============================================================ */
         if ($hasText || $hasInlineImage) {
-            $initialMessage = $ticket->messages()->create([
+            $message = $ticket->messages()->create([
                 'user_id' => auth()->id(),
                 'message' => $rawDescription,
                 'is_internal_note' => false,
             ]);
         }
 
-        /**
-         * ============================================================
-         * ANEXOS
-         * ============================================================
-         */
+        /* ============================================================
+           ANEXOS
+        ============================================================ */
         if ($hasAttachment) {
             foreach ($request->file('attachments') as $file) {
                 $path = $attachmentService->uploadTicketAttachment($file, $ticket->id);
 
                 TicketAttachment::create([
                     'ticket_id' => $ticket->id,
-                    'ticket_message_id' => optional($initialMessage)->id,
+                    'ticket_message_id' => $message->id ?? null,
                     'original_name' => $file->getClientOriginalName(),
                     'file_path' => $path,
                     'mime_type' => $file->getMimeType(),
@@ -247,11 +212,9 @@ class TicketController extends Controller
             }
         }
 
-        /**
-         * ============================================================
-         * HISTÓRICO ITIL
-         * ============================================================
-         */
+        /* ============================================================
+           HISTÓRICO
+        ============================================================ */
         $ticket->groupHistories()->create([
             'from_group_id' => null,
             'to_group_id' => $serviceDesk->id,

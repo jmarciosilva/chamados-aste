@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SupportGroup;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class AgentSupportGroupController extends Controller
@@ -37,19 +38,19 @@ class AgentSupportGroupController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name'            => 'required|string|max:255',
-            'code'            => 'required|string|max:50|unique:support_groups,code',
-            'description'     => 'nullable|string',
-            'is_entry_point'  => 'nullable|boolean',
+            'name' => 'required|string|max:255',
+            'code' => 'required|string|max:50|unique:support_groups,code',
+            'description' => 'nullable|string',
+            'is_entry_point' => 'nullable|boolean',
         ]);
 
         SupportGroup::create([
-            'name'           => $validated['name'],
-            'code'           => strtoupper($validated['code']),
-            'description'    => $validated['description'] ?? null,
+            'name' => $validated['name'],
+            'code' => strtoupper($validated['code']),
+            'description' => $validated['description'] ?? null,
             'is_entry_point' => $request->boolean('is_entry_point'),
-            'is_active'      => true,
-            'created_by'     => auth()->id(),
+            'is_active' => true,
+            'created_by' => auth()->id(),
         ]);
 
         return redirect()
@@ -75,16 +76,16 @@ class AgentSupportGroupController extends Controller
     public function update(Request $request, SupportGroup $supportGroup)
     {
         $validated = $request->validate([
-            'name'           => 'required|string|max:255',
-            'description'    => 'nullable|string',
-            'is_active'      => 'nullable|boolean',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'is_active' => 'nullable|boolean',
             'is_entry_point' => 'nullable|boolean',
         ]);
 
         $supportGroup->update([
-            'name'           => $validated['name'],
-            'description'    => $validated['description'] ?? null,
-            'is_active'      => $request->boolean('is_active'),
+            'name' => $validated['name'],
+            'description' => $validated['description'] ?? null,
+            'is_active' => $request->boolean('is_active'),
             'is_entry_point' => $request->boolean('is_entry_point'),
         ]);
 
@@ -92,4 +93,6 @@ class AgentSupportGroupController extends Controller
             ->route('agent.support-groups.index')
             ->with('success', 'Grupo atualizado com sucesso.');
     }
+
+    
 }

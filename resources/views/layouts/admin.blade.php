@@ -57,17 +57,17 @@
                     </a>
 
                     <!-- SLA -->
-                    <a href="{{ route('admin.slas.index') }}"
+                    {{-- <a href="{{ route('admin.slas.index') }}"
                         class="flex items-center gap-3 px-3 py-2 rounded-md
                {{ request()->routeIs('admin.slas.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
-                        ⏱️ <span x-show="sidebarOpen">Configuração de SLAs</span>
+                        ⏱️ <span x-show="sidebarOpen">Configuração de SLAs</span> --}}
                     </a>
 
                     <!-- PRODUTOS -->
                     <a href="{{ route('admin.products.index') }}"
                         class="flex items-center gap-3 px-3 py-2 rounded-md
                 {{ request()->routeIs('admin.products.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
-                        📦 <span x-show="sidebarOpen">Produtos</span>
+                        📦 <span x-show="sidebarOpen">Serviços / Soluções</span>
                     </a>
 
 
@@ -78,25 +78,69 @@
             | - Prioridade automática
             | - Associação com SLA / Produto
             ==================================================== -->
-                    <a href="{{ route('admin.problem-categories.index') }}"
+                    {{-- <a href="{{ route('admin.problem-categories.index') }}"
                         class="flex items-center gap-3 px-3 py-2 rounded-md
                {{ request()->routeIs('admin.problem-categories.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
                         🧩 <span x-show="sidebarOpen">Categorias de Problemas</span>
-                    </a>
+                    </a> --}}
 
                     <!-- DEPARTAMENTOS -->
                     <a href="{{ route('admin.departments.index') }}"
                         class="flex items-center gap-3 px-3 py-2 rounded-md
-               {{ request()->routeIs('admin.departments.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
+                {{ request()->routeIs('admin.departments.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
                         🏢 <span x-show="sidebarOpen">Departamentos</span>
                     </a>
+
+                    <!-- ====================================================
+                    | GRUPOS DE ATENDIMENTO
+                    | ITIL: Service Desk / Support Teams
+                    ==================================================== -->
+                    {{-- <a href="{{ route('admin.support-groups.index') }}"
+                        class="flex items-center gap-3 px-3 py-2 rounded-md
+                {{ request()->routeIs('admin.support-groups.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
+                        👥 <span x-show="sidebarOpen">Grupos de Atendimento</span>
+                    </a> --}}
+                    <div x-data="{ open: {{ request()->routeIs('admin.support-groups.*') ? 'true' : 'false' }} }">
+                        <button @click="open = !open"
+                            class="w-full flex items-center justify-between px-3 py-2 rounded-md
+                                {{ request()->routeIs('admin.support-groups.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
+
+                            <div class="flex items-center gap-3">
+                                👥 <span x-show="sidebarOpen">Grupos de Atendimento</span>
+                            </div>
+
+                            <span x-show="sidebarOpen" class="text-xs">▾</span>
+                        </button>
+
+                        <div x-show="open" x-collapse class="ml-8 mt-1 space-y-1">
+                            <a href="{{ route('admin.support-groups.index') }}"
+                                class="block px-3 py-1.5 rounded text-xs hover:bg-slate-700">
+                                📋 Listar Grupos
+                            </a>
+
+                            {{-- <span class="block px-3 py-1.5 text-xs text-slate-400">
+                                ➕ Gerenciar Técnicos
+                            </span> --}}
+                        </div>
+                    </div>
+
+
 
                     <!-- USUÁRIOS -->
                     <a href="{{ route('admin.users.index') }}"
                         class="flex items-center gap-3 px-3 py-2 rounded-md
-               {{ request()->routeIs('admin.users.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
+                            {{ request()->routeIs('admin.users.*') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
                         👤 <span x-show="sidebarOpen">Usuários</span>
                     </a>
+
+                    <a href="{{ route('admin.queue') }}"
+                        class="flex items-center gap-3 px-3 py-2 rounded-md
+                            {{ request()->routeIs('admin.queue') ? 'bg-blue-600' : 'hover:bg-slate-700' }}">
+                        👁️ <span x-show="sidebarOpen">Fila de Chamados</span>
+                    </a>
+
+
+
 
                     {{-- ========================================================
             | SWITCH DE MODO (ADMIN)

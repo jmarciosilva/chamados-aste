@@ -36,6 +36,16 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    public function getRoleLabelAttribute()
+    {
+        return [
+            'user'  => 'Usuário',
+            'agent' => 'Operador',
+            'admin' => 'Administrador',
+        ][$this->role] ?? '—';
+    }
+
+
     /**
      * Casts automáticos dos atributos
      */
@@ -75,11 +85,12 @@ class User extends Authenticatable
         return $this->role === 'user';
     }
 
-    // User.php
+    /**
+     * Grupos de atendimento aos quais o usuário pertence
+     */
     public function supportGroups()
     {
-        return $this->belongsToMany(SupportGroup::class);
+        return $this->belongsToMany(SupportGroup::class)
+            ->withTimestamps();
     }
-
-    
 }

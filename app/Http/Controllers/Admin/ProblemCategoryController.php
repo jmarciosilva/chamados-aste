@@ -72,7 +72,10 @@ class ProblemCategoryController extends Controller
     {
         $products = Product::active()->orderBy('name')->get();
 
-        return view('admin.problem-categories.edit', compact('problemCategory', 'products'));
+        return view('admin.problem-categories.edit', [
+            'problemCategory' => $problemCategory,
+            'products' => $products,
+        ]);
     }
 
     /**

@@ -62,6 +62,7 @@ class Ticket extends Model
         'status' => TicketStatus::class,
         'priority' => Priority::class,
 
+        'closed_at' => 'datetime',
         'resolved_at' => 'datetime',
         'sla_started_at' => 'datetime',
         'sla_paused_at' => 'datetime',
@@ -148,32 +149,44 @@ class Ticket extends Model
      */
     public function slaIndicator(): array
     {
-        if (! $this->sla_started_at) {
+        // --------------------------------------------------
+        // NÃO TEM SLA → NÃO APLICA INDICADOR
+        // --------------------------------------------------
+        if (
+            ! $this->sla_started_at ||
+            ! $this->sla_resolution_hours
+        ) {
             return [
-                'status' => 'none',
-                'label' => 'Sem SLA',
+                'status' => 'not_applicable',
+                'label' => 'SLA não definido',
             ];
         }
 
-        if ($this->sla_status === 'paused') {
-            return [
-                'status' => 'paused',
-                'label' => 'Aguardando usuário',
-            ];
-        }
-
-        $deadline = $this->slaDeadline();
         $now = now();
 
-        if ($this->status === TicketStatus::CLOSED) {
+        // --------------------------------------------------
+        // PRAZO FINAL DO SLA
+        // --------------------------------------------------
+        $deadline = Carbon::parse($this->sla_started_at)
+            ->addHours($this->sla_resolution_hours);
+
+        // --------------------------------------------------
+        // CHAMADO ENCERRADO
+        // --------------------------------------------------
+        if ($this->closed_at) {
             return [
-                'status' => $now->lte($deadline) ? 'completed' : 'breached',
-                'label' => $now->lte($deadline)
+                'status' => $this->closed_at->lte($deadline)
+                    ? 'ok'
+                    : 'breached',
+                'label' => $this->closed_at->lte($deadline)
                     ? 'Resolvido dentro do SLA'
                     : 'Resolvido fora do SLA',
             ];
         }
 
+        // --------------------------------------------------
+        // CHAMADO EM ANDAMENTO
+        // --------------------------------------------------
         return $now->gt($deadline)
             ? ['status' => 'breached', 'label' => 'SLA estourado']
             : ['status' => 'running', 'label' => 'SLA em andamento'];

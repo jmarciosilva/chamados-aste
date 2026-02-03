@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use App\Models\Product;
 use App\Models\ProblemCategory;
+use App\Models\Product;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
@@ -11,19 +11,18 @@ class ProblemCategorySeeder extends Seeder
 {
     /**
      * ------------------------------------------------------------------
-     * CATEGORIAS DE PROBLEMAS – SEED INICIAL
+     * CATEGORIAS DE PROBLEMAS
      * ------------------------------------------------------------------
-     * Cada categoria pertence obrigatoriamente a um Produto.
-     * Estas categorias servem como base inicial e podem ser
-     * alteradas via CRUD Admin futuramente.
+     * NÃO existe impacto aqui.
+     * Impacto pertence exclusivamente ao PRODUTO.
      */
     public function run(): void
     {
-        $categories = [
+        $structure = [
             'Acesso / Login' => [
                 [
                     'name' => 'Problemas de Login',
-                    'description' => 'Senha inválida, usuário bloqueado, acesso a sistemas.',
+                    'description' => 'Senha inválida, usuário bloqueado ou acesso negado.',
                 ],
             ],
 
@@ -34,13 +33,6 @@ class ProblemCategorySeeder extends Seeder
                 ],
             ],
 
-            'WEBB LOJA' => [
-                [
-                    'name' => 'Social Seller',
-                    'description' => 'Vendas, Social Seller, entrada de NF.',
-                ],
-            ],
-
             'PDV' => [
                 [
                     'name' => 'Venda no PDV',
@@ -48,24 +40,24 @@ class ProblemCategorySeeder extends Seeder
                 ],
             ],
 
-            'OmniChannel' => [
+            'WEBB LOJA' => [
                 [
-                    'name' => 'Integrações',
-                    'description' => 'Integração loja física e online.',
+                    'name' => 'Social Seller',
+                    'description' => 'Vendas via WhatsApp e Web.',
                 ],
             ],
 
             'E-commerce' => [
                 [
                     'name' => 'Pedidos Online',
-                    'description' => 'Pedidos online, pagamentos, checkout.',
+                    'description' => 'Checkout, pagamentos, pedidos online.',
                 ],
             ],
 
-            'Vejo Varejo' => [
+            'OmniChannel' => [
                 [
-                    'name' => 'Operações de Loja',
-                    'description' => 'Vendas, estoque, preços, clientes.',
+                    'name' => 'Integrações',
+                    'description' => 'Integração loja física e online.',
                 ],
             ],
 
@@ -79,12 +71,12 @@ class ProblemCategorySeeder extends Seeder
             'Centelha B2B' => [
                 [
                     'name' => 'Pedidos Atacado',
-                    'description' => 'Pedidos atacado, portal B2B.',
+                    'description' => 'Pedidos atacado, portal Centelha.',
                 ],
             ],
         ];
 
-        foreach ($categories as $productName => $items) {
+        foreach ($structure as $productName => $categories) {
 
             $product = Product::where('name', $productName)->first();
 
@@ -92,20 +84,20 @@ class ProblemCategorySeeder extends Seeder
                 continue;
             }
 
-            foreach ($items as $index => $category) {
+            foreach ($categories as $index => $item) {
 
                 ProblemCategory::firstOrCreate(
                     [
-                        'slug' => Str::slug($productName.'-'.$category['name']),
+                        'slug' => Str::slug($productName . '-' . $item['name']),
                     ],
                     [
-                        'product_id' => $product->id,
-                        'name' => $category['name'],
-                        'description' => $category['description'],
-                        'service_type' => 'incident',
+                        'product_id'       => $product->id,
+                        'name'             => $item['name'],
+                        'description'      => $item['description'],
+                        'service_type'     => 'incident',
                         'default_priority' => 'low',
-                        'is_active' => true,
-                        'sort_order' => $index + 1,
+                        'is_active'        => true,
+                        'sort_order'       => $index + 1,
                     ]
                 );
             }

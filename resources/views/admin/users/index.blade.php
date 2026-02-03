@@ -97,11 +97,12 @@
                 </thead>
 
                 <tbody class="divide-y">
+                     
                     @foreach ($users as $user)
                         <tr>
                             <td class="px-4 py-2">{{ $user->name }}</td>
                             <td class="px-4 py-2">{{ $user->email }}</td>
-                            <td class="px-4 py-2 capitalize">{{ $user->role }}</td>
+                            <td class="px-4 py-2 capitalize">{{ $user->role_label }}</td>
                             <td class="px-4 py-2">
                                 {{ $user->department->name ?? '—' }}
                             </td>

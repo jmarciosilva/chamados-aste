@@ -50,6 +50,63 @@
         </select>
     </div>
 
+    {{-- ============================================================
+| PERGUNTA DE IMPACTO (HERDADA DO PRODUTO)
+============================================================ --}}
+@if ($category->relationLoaded('product') && $category->product?->impactQuestion)
+
+    <div class="mt-8 border-t pt-6">
+        <h3 class="text-sm font-semibold text-slate-700 mb-2">
+            Pergunta de Impacto (Produto: {{ $category->product->name }})
+        </h3>
+
+        <p class="text-xs text-slate-500 mb-4">
+            Esta pergunta é apresentada ao usuário no momento da abertura do chamado.
+            A criticidade inicial é definida com base na resposta.
+        </p>
+
+        {{-- Pergunta --}}
+        <div class="bg-slate-50 border rounded-lg p-4 mb-4">
+            <p class="font-medium text-slate-800">
+                {{ $category->product->impactQuestion->question }}
+            </p>
+        </div>
+
+        {{-- Respostas --}}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            @foreach ($category->product->impactQuestion->answers as $answer)
+                @php
+                    $colors = [
+                        'critical' => 'red',
+                        'high'     => 'orange',
+                        'medium'   => 'yellow',
+                        'low'      => 'green',
+                    ];
+                    $color = $colors[$answer->priority] ?? 'slate';
+                @endphp
+
+                <div class="border rounded-lg p-4 bg-{{ $color }}-50 border-{{ $color }}-200">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm font-semibold text-{{ $color }}-700">
+                            {{ strtoupper($answer->priority) }}
+                        </span>
+                    </div>
+
+                    <p class="text-sm text-slate-700">
+                        {{ $answer->label }}
+                    </p>
+                </div>
+            @endforeach
+        </div>
+
+        {{-- Observação --}}
+        <div class="mt-4 text-xs text-slate-500">
+            ⚠️ A criticidade pode ser ajustada posteriormente pelo operador durante o atendimento.
+        </div>
+    </div>
+@endif
+
+
     <!-- PRIORIDADE -->
     <div>
         <label class="text-sm">Prioridade Padrão</label>
